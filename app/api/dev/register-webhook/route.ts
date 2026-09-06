@@ -56,10 +56,11 @@ type CreateWebhookResponse = {
 };
 
 /**
- * SOLO DESARROLLO: registra la suscripción real orders/create en Shopify,
- * apuntando a NEXT_PUBLIC_APP_URL. Se corre una sola vez (o cuando cambie
- * el dominio público).
+ * SOLO DESARROLLO: registra una suscripción de webhook en Shopify apuntando
+ * a NEXT_PUBLIC_APP_URL (o a body.appUrl si se corre desde local). Se corre
+ * una sola vez por topic (o cuando cambie el dominio público).
  * POST /api/dev/register-webhook
+ * body: { topic: "ORDERS_CREATE" | "FULFILLMENT_EVENTS_CREATE", path: "/api/webhooks/...", appUrl?: string }
  */
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") {
@@ -67,6 +68,8 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
+  const topic = (body?.topic as string | undefined) ?? "ORDERS_CREATE";
+  const path = (body?.path as string | undefined) ?? "/api/webhooks/shopify/orders-create";
   // Permite apuntar al dominio público real aunque esta mutación se dispare
   // desde el servidor local (Shopify necesita una URL alcanzable, no localhost).
   const appUrl = (body?.appUrl as string | undefined) ?? process.env.NEXT_PUBLIC_APP_URL;
@@ -76,9 +79,9 @@ export async function POST(request: Request) {
 
   try {
     const data = await shopifyGraphql<CreateWebhookResponse>(CREATE_WEBHOOK_MUTATION, {
-      topic: "ORDERS_CREATE",
+      topic,
       webhookSubscription: {
-        uri: `${appUrl}/api/webhooks/shopify/orders-create`,
+        uri: `${appUrl}${path}`,
         format: "JSON",
       },
     });

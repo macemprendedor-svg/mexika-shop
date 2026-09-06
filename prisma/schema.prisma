@@ -16,8 +16,10 @@ enum OrderStatus {
   QUANTITY_REVIEW // 2-3 unidades: requiere revisión humana antes de Dropi
   BLOCKED_QUANTITY // más de 3 unidades: bloqueado (redundancia server-side)
   SENT_TO_DROPI // orderMarkAsPaid ejecutado; Dropify lo recoge en su próximo ciclo
+  PAUSED_ZONE_BLOCKED // el CP/transportadora está bloqueado por rechazos falsos previos
   CANCELLED_NOT_CONFIRMED // nunca confirmó tras el SMS -> historial 4.1
   CANCELLED_MANUAL // cancelado a mano (vendedor, o rechazo en revisión de cantidad)
+  CANCELLED_DELIVERY_INCIDENT // no respondió la encuesta de entrega cuestionada a tiempo
 }
 
 enum ConfirmationChannel {
@@ -73,6 +75,7 @@ model Order {
   updatedAt DateTime @updatedAt
 
   statusHistory OrderStatusHistory[]
+  deliveryIncidents DeliveryIncident[]
 
   @@index([status])
   @@index([customerEmail])
@@ -90,4 +93,89 @@ model OrderStatusHistory {
   createdAt      DateTime @default(now())
 
   @@index([orderId])
+}
+
+// ============================================================
+// Detección de rechazos falsos (módulo aparte, capa de investigación
+// antes de construir la lógica de detección real sobre datos de verdad).
+// ============================================================
+
+// Captura cruda de cada fulfillment event que llega de Shopify, sin
+// clasificar todavía. Sirve para ver qué manda Dropify realmente antes de
+// decidir cómo detectar un "rechazo sospechoso" (sección 6 del spec).
+model FulfillmentEventLog {
+  id                       String   @id @default(cuid())
+  shopifyFulfillmentEventId String  @unique // gid del FulfillmentEvent
+  shopifyFulfillmentId     String? // gid del Fulfillment padre
+  shopifyOrderId           String? // gid de la orden, si se pudo resolver
+  status                   String? // valor crudo (ej. "FAILURE", "ATTEMPTED_DELIVERY")
+  message                  String? // texto libre del carrier, si lo hay
+  rawPayload               String // JSON completo del webhook, para inspección manual
+  createdAt                DateTime @default(now())
+}
+
+enum DeliveryIncidentVerdict {
+  REJECTED_FALSE // el cliente dice que nadie llegó -> cuenta para bloqueo de zona
+  REJECTED_BY_CUSTOMER // sí llegaron, el cliente ya no lo quiso -> no se reporta a Dropi
+  CANCELLED_NO_RESPONSE // no respondió la encuesta a tiempo -> no cuenta para bloqueo
+}
+
+enum DeliveryIncidentSurveyAnswer {
+  NOBODY_CAME
+  DELIVERED_BUT_REFUSED
+  OTHER
+}
+
+// Un incidente = un intento de entrega sospechoso ya confirmado como tal
+// (no cada fulfillment event crudo). Dispara la encuesta al cliente.
+model DeliveryIncident {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  trackingNumber String? // guía
+  carrierName    String? // transportadora
+  postalCode     String
+  municipality   String?
+
+  rawStatus  String?
+  rawMessage String?
+
+  customerEmail String?
+  customerPhone String?
+
+  emailSentAt         DateTime?
+  smsSentAt           DateTime?
+  surveyToken         String    @unique @default(cuid())
+  surveyRespondedAt   DateTime?
+  surveyAnswer        DeliveryIncidentSurveyAnswer?
+  surveyComment       String?
+  verdict             DeliveryIncidentVerdict?
+
+  reportedToDropiAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postalCode, carrierName])
+  @@index([carrierName])
+  @@index([orderId])
+}
+
+// Bloqueo activo de una zona (CP), una transportadora, o la combinación de
+// ambas. postalCode = null significa "cualquier CP"; carrierName = null
+// significa "cualquier transportadora".
+model BlockedZone {
+  id                 String   @id @default(cuid())
+  postalCode         String?
+  municipality       String?
+  carrierName        String?
+  reason             String
+  incidentsReference Int
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  reactivatedAt      DateTime?
+  reactivatedBy      String?
+
+  @@index([postalCode, carrierName])
 }

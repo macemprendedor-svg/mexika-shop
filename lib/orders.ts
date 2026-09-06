@@ -3,7 +3,18 @@ import { prisma } from "@/lib/db";
 import { computeConfirmationSchedule } from "@/lib/confirmation-schedule";
 import { applyQuantityFilter, type QuantityFilterResult } from "@/lib/quantity-filter";
 import { markOrderAsPaidForDropi } from "@/lib/dropi-handoff";
+import { isZoneBlocked } from "@/lib/zone-block";
 import type { ConfirmationChannel, Order } from "@prisma/client";
+
+function extractPostalCode(shippingAddressJson: string | null): string | null {
+  if (!shippingAddressJson) return null;
+  try {
+    const address = JSON.parse(shippingAddressJson) as { zip?: string };
+    return address.zip ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const CONFIRMATION_LINK_TTL_HOURS = 48;
 // Cuánto esperar después del SMS antes de cancelar por no confirmar (sección 2.6).
@@ -139,6 +150,27 @@ async function applyQuantityFilterAndAdvance(order: Order, source: string): Prom
  * llegó a Dropi").
  */
 export async function sendToDropiAndAdvance(order: Order, source: string): Promise<Order> {
+  const postalCode = extractPostalCode(order.shippingAddressJson);
+  if (postalCode) {
+    // La transportadora todavía no se conoce en este punto (Dropi la asigna
+    // después), así que solo se evalúan bloqueos de CP puro.
+    const blocked = await isZoneBlocked(postalCode);
+    if (blocked) {
+      const updated = await prisma.order.update({
+        where: { id: order.id },
+        data: { status: "PAUSED_ZONE_BLOCKED" },
+      });
+      await recordHistory(
+        order.id,
+        order.status,
+        "PAUSED_ZONE_BLOCKED",
+        source,
+        `Zona bloqueada: ${blocked.reason}`,
+      );
+      return updated;
+    }
+  }
+
   try {
     await markOrderAsPaidForDropi(order.shopifyOrderId);
   } catch (error) {
