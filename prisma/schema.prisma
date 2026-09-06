@@ -77,6 +77,14 @@ model Order {
   cancelledAt  DateTime?
   cancelReason String?
 
+  // Seguimiento por Telegram post-confirmación (sección 8) — opt-in del
+  // cliente desde la página de confirmación, no es el canal de confirmación.
+  telegramChatId   String?
+  telegramLinkedAt DateTime?
+  reminder1SentAt  DateTime? // "Tu pedido sale hoy a entrega"
+  reminder2SentAt  DateTime? // seguimiento intermedio
+  reminder3SentAt  DateTime? // último aviso
+
   rawPayload String // JSON del webhook orders/create, para auditoría
 
   createdAt DateTime @default(now())

@@ -3,6 +3,7 @@ import { sendEmail, MailerError } from "@/lib/mailer";
 import { sendSms, SmsError } from "@/lib/sms";
 import { checkAndApplyZoneBlock } from "@/lib/zone-block";
 import { reportIncidentToDropi } from "@/lib/dropi-report";
+import { extractPostalCode, extractCity } from "@/lib/shipping-address";
 import type { DeliveryIncident, DeliveryIncidentSurveyAnswer } from "@prisma/client";
 
 // Sección "Cron: escalación a SMS y cancelación automática" del documento.
@@ -80,6 +81,27 @@ function verdictForAnswer(
   return null;
 }
 
+/**
+ * Efectos secundarios de un veredicto REJECTED_FALSE (compartido entre la
+ * encuesta web y el botón "no visitaron mi domicilio" de Telegram):
+ * revisar umbral de bloqueo y reportar a Dropi.
+ */
+async function applyRejectedFalseSideEffects(incident: DeliveryIncident): Promise<void> {
+  await checkAndApplyZoneBlock(incident);
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: incident.orderId } });
+  try {
+    await reportIncidentToDropi(incident, order);
+    await prisma.deliveryIncident.update({
+      where: { id: incident.id },
+      data: { reportedToDropiAt: new Date() },
+    });
+  } catch {
+    // No debe tumbar el registro del veredicto ni el bloqueo de zona (eso
+    // ya se aplicó arriba); si falla el correo a Dropi, queda
+    // reportedToDropiAt en null para poder reintentar después.
+  }
+}
+
 export async function recordSurveyResponse(
   token: string,
   answer: DeliveryIncidentSurveyAnswer,
@@ -102,19 +124,7 @@ export async function recordSurveyResponse(
   });
 
   if (verdict === "REJECTED_FALSE") {
-    await checkAndApplyZoneBlock(updated);
-    const order = await prisma.order.findUniqueOrThrow({ where: { id: updated.orderId } });
-    try {
-      await reportIncidentToDropi(updated, order);
-      await prisma.deliveryIncident.update({
-        where: { id: updated.id },
-        data: { reportedToDropiAt: new Date() },
-      });
-    } catch {
-      // No debe tumbar el registro del veredicto ni el bloqueo de zona (eso
-      // ya se aplicó arriba); si falla el correo a Dropi, queda
-      // reportedToDropiAt en null para poder reintentar después.
-    }
+    await applyRejectedFalseSideEffects(updated);
   }
 
   return updated;
@@ -170,4 +180,32 @@ export async function processPendingIncidentSurveys(): Promise<ProcessIncidentSu
   }
 
   return { smsEscalated, cancelledNoResponse };
+}
+
+/**
+ * "El cliente marca 'no vinieron'" (sección 6, uno de los señales de
+ * entrega cuestionada) — reportado directo desde el botón de Telegram
+ * "Reportar que no visitaron mi domicilio" (sección 8), sin pasar por la
+ * encuesta por correo/SMS ya que el cliente mismo inició el reporte.
+ */
+export async function createIncidentFromCustomerReport(orderId: string): Promise<DeliveryIncident> {
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+
+  const incident = await prisma.deliveryIncident.create({
+    data: {
+      orderId: order.id,
+      postalCode: extractPostalCode(order.shippingAddressJson) ?? "N/D",
+      municipality: extractCity(order.shippingAddressJson),
+      customerEmail: order.customerEmail,
+      customerPhone: order.customerPhone,
+      rawStatus: "CUSTOMER_REPORTED",
+      rawMessage: "El cliente reportó vía Telegram que no visitaron su domicilio",
+      surveyAnswer: "NOBODY_CAME",
+      surveyRespondedAt: new Date(),
+      verdict: "REJECTED_FALSE",
+    },
+  });
+
+  await applyRejectedFalseSideEffects(incident);
+  return incident;
 }

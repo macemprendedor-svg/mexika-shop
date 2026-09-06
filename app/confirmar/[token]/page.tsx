@@ -72,6 +72,18 @@ export default async function ConfirmationPage({ params }: PageProps) {
       <p style={{ fontWeight: "bold" }}>Ten disponible el importe exacto.</p>
 
       <ConfirmActions token={token} />
+
+      {process.env.TELEGRAM_BOT_USERNAME && (
+        <p style={{ marginTop: 16 }}>
+          <a
+            href={`https://t.me/${process.env.TELEGRAM_BOT_USERNAME}?start=${token}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Activar seguimiento por Telegram
+          </a>
+        </p>
+      )}
     </main>
   );
 }

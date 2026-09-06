@@ -22,6 +22,10 @@ export async function GET(request: Request) {
       customerEmail: true,
       createdAt: true,
       updatedAt: true,
+      telegramChatId: true,
+      reminder1SentAt: true,
+      reminder2SentAt: true,
+      reminder3SentAt: true,
     },
   });
 

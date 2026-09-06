@@ -4,17 +4,8 @@ import { computeConfirmationSchedule } from "@/lib/confirmation-schedule";
 import { applyQuantityFilter, type QuantityFilterResult } from "@/lib/quantity-filter";
 import { markOrderAsPaidForDropi } from "@/lib/dropi-handoff";
 import { isZoneBlocked } from "@/lib/zone-block";
+import { extractPostalCode } from "@/lib/shipping-address";
 import type { ConfirmationChannel, Order } from "@prisma/client";
-
-function extractPostalCode(shippingAddressJson: string | null): string | null {
-  if (!shippingAddressJson) return null;
-  try {
-    const address = JSON.parse(shippingAddressJson) as { zip?: string };
-    return address.zip ?? null;
-  } catch {
-    return null;
-  }
-}
 
 const CONFIRMATION_LINK_TTL_HOURS = 48;
 // Cuánto esperar después del SMS antes de cancelar por no confirmar (sección 2.6).

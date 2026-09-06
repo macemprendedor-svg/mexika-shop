@@ -38,6 +38,10 @@ type KanbanOrder = {
   totalPrice: string;
   currency: string;
   semaphore: "green" | "yellow" | "red";
+  telegramChatId: string | null;
+  reminder1SentAt: string | null;
+  reminder2SentAt: string | null;
+  reminder3SentAt: string | null;
 };
 
 type UnconfirmedOrder = {
@@ -76,7 +80,6 @@ function ExceptionsSection() {
   const [busy, setBusy] = useState<string | null>(null);
 
   function load() {
-    setLoading(true);
     fetch("/api/excepciones")
       .then((r) => r.json())
       .then((json) => setItems(json.items ?? []))
@@ -95,6 +98,7 @@ function ExceptionsSection() {
       });
     } finally {
       setBusy(null);
+      setLoading(true);
       load();
     }
   }
@@ -161,6 +165,14 @@ function KanbanSection() {
 
   const statuses = Object.keys(byStatus);
 
+  async function sendReminder(orderId: string, stage: 1 | 2 | 3) {
+    await fetch(`/api/pedidos/${orderId}/recordatorio-telegram`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage }),
+    });
+  }
+
   return (
     <section style={sectionStyle}>
       <h2>Pedidos (últimos 7 días)</h2>
@@ -183,6 +195,22 @@ function KanbanSection() {
                   <span style={{ color: SEMAPHORE_COLOR[o.semaphore] }}>●</span> {o.shopifyOrderName}
                   <br />
                   {o.totalQuantity} u. — {o.totalPrice} {o.currency}
+                  {o.status === "SENT_TO_DROPI" && o.telegramChatId && (
+                    <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      <button disabled={!!o.reminder1SentAt} onClick={() => sendReminder(o.id, 1)}>
+                        Aviso 1
+                      </button>
+                      <button disabled={!!o.reminder2SentAt} onClick={() => sendReminder(o.id, 2)}>
+                        Aviso 2
+                      </button>
+                      <button disabled={!!o.reminder3SentAt} onClick={() => sendReminder(o.id, 3)}>
+                        Aviso 3
+                      </button>
+                    </div>
+                  )}
+                  {o.status === "SENT_TO_DROPI" && !o.telegramChatId && (
+                    <div style={{ marginTop: 6, color: "#999" }}>Sin seguimiento por Telegram</div>
+                  )}
                 </div>
               ))}
             </div>
@@ -198,7 +226,6 @@ function UnconfirmedHistorySection() {
   const [loading, setLoading] = useState(true);
 
   function load() {
-    setLoading(true);
     fetch("/api/historial-no-confirmados")
       .then((r) => r.json())
       .then((json) => setOrders(json.orders ?? []))
@@ -213,6 +240,7 @@ function UnconfirmedHistorySection() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, decidedBy: "panel" }),
     });
+    setLoading(true);
     load();
   }
 
@@ -254,10 +282,9 @@ function UnconfirmedHistorySection() {
 
 function SettingsSection() {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "saving" | "saved" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "saving" | "saved" | "error">("loading");
 
   useEffect(() => {
-    setStatus("loading");
     fetch("/api/settings")
       .then((r) => r.json())
       .then((json) => {
@@ -312,7 +339,6 @@ function BlockedZonesSection() {
   const [loading, setLoading] = useState(true);
 
   function load() {
-    setLoading(true);
     fetch("/api/zonas-bloqueadas")
       .then((r) => r.json())
       .then((json) => setZones(json.zones ?? []))
@@ -327,6 +353,7 @@ function BlockedZonesSection() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reactivatedBy: "panel" }),
     });
+    setLoading(true);
     load();
   }
 
