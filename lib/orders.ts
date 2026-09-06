@@ -149,8 +149,12 @@ async function applyQuantityFilterAndAdvance(order: Order, source: string): Prom
  * historial para revisión humana (sección 7: alerta de "confirmado que no
  * llegó a Dropi").
  */
-export async function sendToDropiAndAdvance(order: Order, source: string): Promise<Order> {
-  const postalCode = extractPostalCode(order.shippingAddressJson);
+export async function sendToDropiAndAdvance(
+  order: Order,
+  source: string,
+  options: { bypassZoneGate?: boolean } = {},
+): Promise<Order> {
+  const postalCode = options.bypassZoneGate ? null : extractPostalCode(order.shippingAddressJson);
   if (postalCode) {
     // La transportadora todavía no se conoce en este punto (Dropi la asigna
     // después), así que solo se evalúan bloqueos de CP puro.
