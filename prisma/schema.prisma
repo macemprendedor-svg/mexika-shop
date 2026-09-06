@@ -10,6 +10,14 @@ datasource db {
   provider = "postgresql"
 }
 
+// Configuración editable desde el panel sin necesitar un redeploy (ej. el
+// correo de soporte de Dropi, que puede cambiar antes de tener uno fijo).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 enum OrderStatus {
   PENDING_CONFIRMATION // esperando correo1/correo2/sms
   CONFIRMED // el cliente confirmó, pendiente de pasar el filtro de cantidad

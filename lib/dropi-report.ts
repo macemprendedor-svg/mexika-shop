@@ -1,18 +1,20 @@
 import { sendEmail } from "@/lib/mailer";
+import { getSetting, SETTING_KEYS } from "@/lib/settings";
 import type { DeliveryIncident, Order } from "@prisma/client";
 
 /**
  * Reporte de evidencia a Dropi cuando un incidente se confirma como
  * rechazo falso (sección "Reporte automático a Dropi" del documento de
- * detección). Requiere DROPI_SOPORTE_EMAIL.
+ * detección). El correo destino es editable desde el panel (AppSetting) —
+ * DROPI_SOPORTE_EMAIL solo se usa como valor inicial de respaldo.
  */
 export async function reportIncidentToDropi(
   incident: DeliveryIncident,
   order: Order,
 ): Promise<void> {
-  const dropiEmail = process.env.DROPI_SOPORTE_EMAIL;
+  const dropiEmail = await getSetting(SETTING_KEYS.DROPI_SUPPORT_EMAIL, process.env.DROPI_SOPORTE_EMAIL);
   if (!dropiEmail) {
-    throw new Error("Falta DROPI_SOPORTE_EMAIL en las variables de entorno");
+    throw new Error("Falta configurar el correo de soporte de Dropi (panel o DROPI_SOPORTE_EMAIL)");
   }
 
   const html = `
