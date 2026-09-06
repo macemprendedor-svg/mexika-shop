@@ -1,0 +1,93 @@
+// Fase 1: captura de pedido, pausa de confirmación, filtro de cantidad.
+// Postgres (Supabase) — necesario para persistir entre invocaciones
+// serverless en Netlify (SQLite no sobrevive ahí).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrderStatus {
+  PENDING_CONFIRMATION // esperando correo1/correo2/sms
+  CONFIRMED // el cliente confirmó, pendiente de pasar el filtro de cantidad
+  QUANTITY_REVIEW // 2-3 unidades: requiere revisión humana antes de Dropi
+  BLOCKED_QUANTITY // más de 3 unidades: bloqueado (redundancia server-side)
+  SENT_TO_DROPI // orderMarkAsPaid ejecutado; Dropify lo recoge en su próximo ciclo
+  CANCELLED_NOT_CONFIRMED // nunca confirmó tras el SMS -> historial 4.1
+  CANCELLED_MANUAL // cancelado a mano (vendedor, o rechazo en revisión de cantidad)
+}
+
+enum ConfirmationChannel {
+  EMAIL
+  SMS
+  MANUAL // reingresado desde el historial de no confirmados (sección 4.1)
+}
+
+model Order {
+  id        String @id @default(cuid())
+  shopifyOrderId String @unique // gid://shopify/Order/...
+  shopifyOrderName String // "#1001"
+
+  customerEmail String?
+  customerPhone String?
+  totalQuantity Int
+
+  // Para la página de confirmación del cliente (sección 10): total a pagar,
+  // dirección y productos. Se guardan tal cual vienen del webhook.
+  totalPrice        String
+  currency          String
+  shippingAddressJson String? // JSON crudo de shipping_address
+  lineItemsJson       String // JSON crudo de line_items (título, cantidad, precio)
+
+  status OrderStatus @default(PENDING_CONFIRMATION)
+
+  // Hora real de creación del pedido en Shopify (usada para las ventanas de confirmación)
+  shopifyCreatedAt DateTime
+
+  scheduledEmail2At DateTime
+  scheduledSmsAt    DateTime
+  email1SentAt      DateTime?
+  email2SentAt      DateTime?
+  smsSentAt         DateTime?
+
+  confirmationToken           String    @unique
+  confirmationTokenExpiresAt  DateTime
+  confirmedAt                 DateTime?
+  confirmedVia                ConfirmationChannel?
+
+  quantityFilterResult   String? // AUTO_APPROVE | NEEDS_REVIEW | BLOCKED
+  quantityReviewDecision String? // APPROVED | REJECTED
+  quantityReviewDecidedAt DateTime?
+  quantityReviewDecidedBy String?
+
+  markedPaidAt DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  rawPayload String // JSON del webhook orders/create, para auditoría
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statusHistory OrderStatusHistory[]
+
+  @@index([status])
+  @@index([customerEmail])
+  @@index([customerPhone])
+}
+
+model OrderStatusHistory {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  previousStatus String?
+  newStatus      String
+  source         String // "webhook" | "cron" | "customer" | "admin:<email>"
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([orderId])
+}
