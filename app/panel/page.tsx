@@ -54,6 +54,13 @@ type UnconfirmedOrder = {
   cancelReason: string | null;
 };
 
+type BurnedContact = {
+  email: string | null;
+  phone: string | null;
+  count: number;
+  orders: string[];
+};
+
 const SEMAPHORE_COLOR: Record<string, string> = { green: "#2e7d32", yellow: "#b8860b", red: "#c62828" };
 
 const sectionStyle: React.CSSProperties = { margin: "32px 0" };
@@ -67,6 +74,7 @@ export default function PanelPage() {
       <ExceptionsSection />
       <KanbanSection />
       <UnconfirmedHistorySection />
+      <BurnedContactsSection />
       <SettingsSection />
       <BlockedZonesSection />
       <RiskRankingSection />
@@ -95,6 +103,21 @@ function ExceptionsSection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decidedBy: "panel" }),
+      });
+    } finally {
+      setBusy(null);
+      setLoading(true);
+      load();
+    }
+  }
+
+  async function decide(orderId: string, path: string, decision: "APPROVED" | "REJECTED") {
+    setBusy(orderId);
+    try {
+      await fetch(`/api/pedidos/${orderId}/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, decidedBy: "panel" }),
       });
     } finally {
       setBusy(null);
@@ -141,6 +164,34 @@ function ExceptionsSection() {
                     <button disabled={busy === it.orderId} onClick={() => act(it.orderId, "forzar-envio")}>
                       Forzar envío
                     </button>
+                  )}
+                  {(it.category === "QUANTITY_REVIEW" || it.category === "CUSTOMER_RISK_REVIEW") && (
+                    <>
+                      <button
+                        disabled={busy === it.orderId}
+                        onClick={() =>
+                          decide(
+                            it.orderId,
+                            it.category === "QUANTITY_REVIEW" ? "revision-cantidad" : "revision-riesgo-cliente",
+                            "APPROVED",
+                          )
+                        }
+                      >
+                        Aprobar
+                      </button>{" "}
+                      <button
+                        disabled={busy === it.orderId}
+                        onClick={() =>
+                          decide(
+                            it.orderId,
+                            it.category === "QUANTITY_REVIEW" ? "revision-cantidad" : "revision-riesgo-cliente",
+                            "REJECTED",
+                          )
+                        }
+                      >
+                        Rechazar
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -271,6 +322,52 @@ function UnconfirmedHistorySection() {
                   <button onClick={() => act(o.id, "approve-inject")}>Aprobar e inyectar</button>{" "}
                   <button onClick={() => act(o.id, "delete")}>Eliminar</button>
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function BurnedContactsSection() {
+  const [contacts, setContacts] = useState<BurnedContact[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/numeros-quemados")
+      .then((r) => r.json())
+      .then((json) => setContacts(json.contacts ?? []))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <section style={sectionStyle}>
+      <h2>Números quemados</h2>
+      <p style={{ color: "#666" }}>
+        Contactos con al menos un rechazo real de entrega. Al volver a comprar, su pedido pasa a
+        revisión humana automáticamente.
+      </p>
+      {loading ? (
+        <p>Cargando…</p>
+      ) : contacts.length === 0 ? (
+        <p>Sin contactos con rechazos registrados.</p>
+      ) : (
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={cellStyle}>Contacto</th>
+              <th style={cellStyle}>Rechazos</th>
+              <th style={cellStyle}>Pedidos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contacts.map((c, i) => (
+              <tr key={i}>
+                <td style={cellStyle}>{c.email ?? c.phone ?? "—"}</td>
+                <td style={cellStyle}>{c.count}</td>
+                <td style={cellStyle}>{c.orders.join(", ")}</td>
               </tr>
             ))}
           </tbody>

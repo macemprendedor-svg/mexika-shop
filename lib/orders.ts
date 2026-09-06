@@ -5,6 +5,7 @@ import { applyQuantityFilter, type QuantityFilterResult } from "@/lib/quantity-f
 import { markOrderAsPaidForDropi } from "@/lib/dropi-handoff";
 import { isZoneBlocked } from "@/lib/zone-block";
 import { extractPostalCode } from "@/lib/shipping-address";
+import { hasRejectionHistory } from "@/lib/customer-risk";
 import type { ConfirmationChannel, Order } from "@prisma/client";
 
 const CONFIRMATION_LINK_TTL_HOURS = 48;
@@ -215,7 +216,63 @@ export async function confirmOrder(
   });
   await recordHistory(order.id, order.status, "CONFIRMED", source);
 
+  // Puntuación de riesgo del cliente (sección 4.2): un rechazo real previo
+  // (no un rechazo falso de la transportadora) exige revisión humana antes
+  // de seguir, sin importar la cantidad de este pedido nuevo.
+  const hasRejection = await hasRejectionHistory(
+    confirmed.customerEmail,
+    confirmed.customerPhone,
+    confirmed.id,
+  );
+  if (hasRejection) {
+    const flagged = await prisma.order.update({
+      where: { id: confirmed.id },
+      data: { status: "CUSTOMER_RISK_REVIEW" },
+    });
+    await recordHistory(
+      confirmed.id,
+      "CONFIRMED",
+      "CUSTOMER_RISK_REVIEW",
+      source,
+      "El cliente tiene un rechazo de entrega real en un pedido anterior",
+    );
+    return flagged;
+  }
+
   return applyQuantityFilterAndAdvance(confirmed, source);
+}
+
+/**
+ * Decisión humana sobre un pedido en revisión por historial de rechazos
+ * (sección 4.2). APPROVED sigue el flujo normal (filtro de cantidad);
+ * REJECTED corta el pedido.
+ */
+export async function decideCustomerRiskReview(
+  orderId: string,
+  decision: "APPROVED" | "REJECTED",
+  decidedBy: string,
+): Promise<Order> {
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  if (order.status !== "CUSTOMER_RISK_REVIEW") {
+    throw new OrderServiceError(
+      `El pedido ${order.shopifyOrderName} no está en revisión de riesgo de cliente (estado actual: ${order.status})`,
+    );
+  }
+
+  if (decision === "REJECTED") {
+    const updated = await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status: "CANCELLED_MANUAL",
+        cancelledAt: new Date(),
+        cancelReason: "Rechazado en revisión de riesgo por historial de rechazos",
+      },
+    });
+    await recordHistory(order.id, order.status, "CANCELLED_MANUAL", `admin:${decidedBy}`);
+    return updated;
+  }
+
+  return applyQuantityFilterAndAdvance(order, `admin:${decidedBy}`);
 }
 
 /**

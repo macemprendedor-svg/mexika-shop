@@ -22,6 +22,7 @@ enum OrderStatus {
   PENDING_CONFIRMATION // esperando correo1/correo2/sms
   CONFIRMED // el cliente confirmó, pendiente de pasar el filtro de cantidad
   QUANTITY_REVIEW // 2-3 unidades: requiere revisión humana antes de Dropi
+  CUSTOMER_RISK_REVIEW // el cliente (correo/tel) tiene un rechazo real previo -> historial 4.2
   BLOCKED_QUANTITY // más de 3 unidades: bloqueado (redundancia server-side)
   SENT_TO_DROPI // orderMarkAsPaid ejecutado; Dropify lo recoge en su próximo ciclo
   PAUSED_ZONE_BLOCKED // el CP/transportadora está bloqueado por rechazos falsos previos

@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "OrderStatus" ADD VALUE 'CUSTOMER_RISK_REVIEW';

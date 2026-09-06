@@ -13,7 +13,8 @@ export type ExceptionItem = {
     | "QUANTITY_REVIEW"
     | "ZONE_BLOCKED"
     | "STUCK_BEFORE_DROPI"
-    | "UNCONFIRMED_HISTORY";
+    | "UNCONFIRMED_HISTORY"
+    | "CUSTOMER_RISK_REVIEW";
   reason: string;
   recommendedAction: string;
   ageMinutes: number;
@@ -100,6 +101,23 @@ export async function getExceptionsInbox(): Promise<ExceptionItem[]> {
       recommendedAction: "Aprobar e inyectar (si confirmó por otro medio) o eliminar",
       ageMinutes: age,
       severity: "yellow",
+    });
+  }
+
+  const customerRisk = await prisma.order.findMany({
+    where: { status: "CUSTOMER_RISK_REVIEW" },
+    orderBy: { confirmedAt: "asc" },
+  });
+  for (const order of customerRisk) {
+    const age = ageMinutes(order.confirmedAt ?? order.createdAt);
+    items.push({
+      orderId: order.id,
+      orderName: order.shopifyOrderName,
+      category: "CUSTOMER_RISK_REVIEW",
+      reason: "El cliente tiene un rechazo de entrega real en un pedido anterior",
+      recommendedAction: "Aprobar o rechazar en /api/pedidos/[id]/revision-riesgo-cliente",
+      ageMinutes: age,
+      severity: age > 60 ? "red" : "yellow",
     });
   }
 
