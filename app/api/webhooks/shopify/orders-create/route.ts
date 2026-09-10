@@ -1,5 +1,9 @@
 import { verifyShopifyWebhookHmac } from "@/lib/shopify-webhook-verify";
-import { createOrderFromShopifyWebhook, type ShopifyOrderWebhookPayload } from "@/lib/orders";
+import {
+  createOrderFromShopifyWebhook,
+  isPrepaidOrder,
+  type ShopifyOrderWebhookPayload,
+} from "@/lib/orders";
 import { sendEmail1IfNeeded } from "@/lib/confirmation-engine";
 
 /**
@@ -27,6 +31,13 @@ export async function POST(request: Request) {
     payload = JSON.parse(rawBody);
   } catch {
     return Response.json({ ok: false, error: "Body no es JSON válido" }, { status: 400 });
+  }
+
+  // Pedido de pago anticipado con Mercado Pago: lo maneja un proyecto aparte,
+  // no debe entrar a la lógica de confirmación de COD (no crear Order ni
+  // programar correo1/correo2/SMS).
+  if (isPrepaidOrder(payload.tags)) {
+    return Response.json({ ok: true, skipped: "pago-anticipado" });
   }
 
   const order = await createOrderFromShopifyWebhook(payload);

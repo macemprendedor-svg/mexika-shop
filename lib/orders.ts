@@ -44,7 +44,23 @@ export type ShopifyOrderWebhookPayload = {
   currency: string;
   shipping_address?: Record<string, unknown> | null;
   line_items: Array<{ title: string; quantity: number; price: string }>;
+  tags?: string | null; // string separado por comas, tal como lo manda Shopify
 };
+
+const PREPAID_TAG = "pago-anticipado";
+
+/**
+ * true si el pedido trae la etiqueta "pago-anticipado" — ese flujo lo maneja
+ * el módulo aparte de pago anticipado con Mercado Pago, no debe entrar a la
+ * lógica de confirmación de COD de este proyecto.
+ */
+export function isPrepaidOrder(tags: string | null | undefined): boolean {
+  if (!tags) return false;
+  return tags
+    .split(",")
+    .map((tag) => tag.trim().toLowerCase())
+    .includes(PREPAID_TAG);
+}
 
 /**
  * Crea el pedido en nuestra base a partir del webhook orders/create de
